@@ -23,7 +23,12 @@ public partial class MainWindow : Window
         OutputFolderTextBox.Text = Environment.GetFolderPath(Environment.SpecialFolder.MyVideos);
         YtDlpPathTextBox.Text = FindExecutable("yt-dlp.exe");
         FfmpegPathTextBox.Text = FindExecutable("ffmpeg.exe", "ffmpeg\\bin\\ffmpeg.exe");
-        FormatComboBox.SelectionChanged += FormatComboBox_SelectionChanged;
+
+        VideoQualityComboBox.SelectionChanged += VideoQualityComboBox_SelectionChanged;
+        AudioFormatComboBox.SelectionChanged += AudioFormatComboBox_SelectionChanged;
+        UpdateVideoCustomEnabled();
+        UpdateAudioCustomEnabled();
+        UpdateMergeAvailability();
     }
 
     private static string FindExecutable(string exeName, params string[] extraRelativeCandidates)
@@ -63,10 +68,71 @@ public partial class MainWindow : Window
         return exeName;
     }
 
-    private void FormatComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    private void VideoQualityComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        var tag = (FormatComboBox.SelectedItem as ComboBoxItem)?.Tag as string ?? "";
-        CustomFormatTextBox.IsEnabled = tag.StartsWith("CUSTOM");
+        UpdateVideoCustomEnabled();
+        UpdateMergeAvailability();
+    }
+
+    private void AudioFormatComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        UpdateAudioCustomEnabled();
+        UpdateMergeAvailability();
+    }
+
+    private void UpdateVideoCustomEnabled()
+    {
+        var tag = (VideoQualityComboBox.SelectedItem as ComboBoxItem)?.Tag as string ?? "";
+        CustomVideoFormatTextBox.IsEnabled = tag == "CUSTOM";
+    }
+
+    private void UpdateAudioCustomEnabled()
+    {
+        var tag = (AudioFormatComboBox.SelectedItem as ComboBoxItem)?.Tag as string ?? "";
+        CustomAudioFormatTextBox.IsEnabled = tag == "CUSTOM";
+    }
+
+    private bool IsVideoIncluded()
+    {
+        var tag = (VideoQualityComboBox.SelectedItem as ComboBoxItem)?.Tag as string ?? "";
+        return tag != "NONE";
+    }
+
+    private bool IsAudioIncluded()
+    {
+        var tag = (AudioFormatComboBox.SelectedItem as ComboBoxItem)?.Tag as string ?? "";
+        return tag != "NONE";
+    }
+
+    private bool _wasBothSelected;
+
+    // -x/--extract-audio (mp3/m4a) throws away any video track, so it only
+    // makes sense when no video format is selected at all.
+    private void UpdateMergeAvailability()
+    {
+        var videoIncluded = IsVideoIncluded();
+        AudioMp3Item.IsEnabled = !videoIncluded;
+        AudioM4aItem.IsEnabled = !videoIncluded;
+        if (videoIncluded && AudioFormatComboBox.SelectedItem is ComboBoxItem { Tag: string audioTag } && audioTag.StartsWith("AUDIO_ONLY"))
+            AudioFormatComboBox.SelectedIndex = 0;
+
+        var bothSelected = videoIncluded && IsAudioIncluded();
+        MergeMp4CheckBox.IsEnabled = bothSelected;
+        if (!bothSelected)
+            MergeMp4CheckBox.IsChecked = false;
+        else if (!_wasBothSelected)
+            MergeMp4CheckBox.IsChecked = true; // default to merging when both first become available
+
+        _wasBothSelected = bothSelected;
+    }
+
+    private enum FormatKind { Audio, Video }
+
+    private static FormatKind ClassifyFormatLine(string line)
+    {
+        if (Regex.IsMatch(line, @"\baudio only\b", RegexOptions.IgnoreCase))
+            return FormatKind.Audio;
+        return FormatKind.Video;
     }
 
     private static List<string> ParseFormatLines(string output)
@@ -164,6 +230,18 @@ public partial class MainWindow : Window
         }
     }
 
+    private static void SelectCustomTag(ComboBox comboBox)
+    {
+        foreach (var obj in comboBox.Items)
+        {
+            if (obj is ComboBoxItem { Tag: "CUSTOM" } cbi)
+            {
+                comboBox.SelectedItem = cbi;
+                return;
+            }
+        }
+    }
+
     private void ApplySelectedFormats()
     {
         if (FormatsListBox.SelectedItems.Count == 0)
@@ -172,26 +250,43 @@ public partial class MainWindow : Window
             return;
         }
 
-        var ids = new List<string>();
+        string? videoId = null;
+        string? audioId = null;
         foreach (var item in FormatsListBox.SelectedItems)
         {
             var line = (item as string ?? "").TrimStart();
             var m = Regex.Match(line, @"^(\S+)");
-            if (m.Success)
-                ids.Add(m.Groups[1].Value);
+            if (!m.Success) continue;
+            var id = m.Groups[1].Value;
+
+            if (ClassifyFormatLine(line) == FormatKind.Audio)
+                audioId ??= id;
+            else
+                videoId ??= id;
         }
 
-        if (ids.Count == 0) return;
+        if (videoId == null && audioId == null) return;
 
-        CustomFormatTextBox.Text = string.Join("+", ids);
-
-        foreach (var obj in FormatComboBox.Items)
+        if (videoId != null)
         {
-            if (obj is ComboBoxItem cbi && (cbi.Tag as string)?.StartsWith("CUSTOM") == true)
-            {
-                FormatComboBox.SelectedItem = cbi;
-                break;
-            }
+            CustomVideoFormatTextBox.Text = videoId;
+            SelectCustomTag(VideoQualityComboBox);
+        }
+        else
+        {
+            VideoQualityComboBox.SelectedItem = VideoQualityComboBox.Items
+                .OfType<ComboBoxItem>().First(i => (string)i.Tag == "NONE");
+        }
+
+        if (audioId != null)
+        {
+            CustomAudioFormatTextBox.Text = audioId;
+            SelectCustomTag(AudioFormatComboBox);
+        }
+        else
+        {
+            AudioFormatComboBox.SelectedItem = AudioFormatComboBox.Items
+                .OfType<ComboBoxItem>().First(i => (string)i.Tag == "NONE");
         }
     }
 
@@ -303,40 +398,56 @@ public partial class MainWindow : Window
         var args = new List<string>();
         var url = UrlTextBox.Text.Trim();
 
-        var tag = (FormatComboBox.SelectedItem as ComboBoxItem)?.Tag as string ?? "";
-        var isAudioOnly = tag.StartsWith("AUDIO_ONLY");
+        var videoTag = (VideoQualityComboBox.SelectedItem as ComboBoxItem)?.Tag as string ?? "NONE";
+        var audioTag = (AudioFormatComboBox.SelectedItem as ComboBoxItem)?.Tag as string ?? "NONE";
 
-        if (isAudioOnly)
+        var videoFormat = videoTag switch
         {
-            var audioCodec = tag.Split('|') is [_, var codec] ? codec : "mp3";
+            "NONE" => null,
+            "CUSTOM" => CustomVideoFormatTextBox.Text.Trim() is { Length: > 0 } v ? v : null,
+            _ => videoTag,
+        };
+
+        // AudioFormatComboBox.IsEnabled logic keeps AUDIO_ONLY (mp3/m4a) unselectable
+        // whenever a video format is present, so this only ever fires in audio-only mode.
+        var isAudioExtract = audioTag.StartsWith("AUDIO_ONLY");
+        var audioFormat = audioTag switch
+        {
+            "NONE" => null,
+            "CUSTOM" => CustomAudioFormatTextBox.Text.Trim() is { Length: > 0 } a ? a : null,
+            _ when isAudioExtract => null,
+            _ => audioTag,
+        };
+
+        if (isAudioExtract && videoFormat == null)
+        {
+            var audioCodec = audioTag.Split('|') is [_, var codec] ? codec : "mp3";
             args.Add("-x");
             args.Add("--audio-format");
             args.Add(audioCodec);
         }
-        else if (tag == "CUSTOM")
+        else if (videoFormat != null && audioFormat != null)
         {
-            var custom = CustomFormatTextBox.Text.Trim();
-            if (!string.IsNullOrEmpty(custom))
+            var merge = MergeMp4CheckBox.IsEnabled && MergeMp4CheckBox.IsChecked == true;
+            args.Add("-f");
+            args.Add(merge ? $"{videoFormat}+{audioFormat}" : $"{videoFormat},{audioFormat}");
+            if (merge)
             {
-                args.Add("-f");
-                args.Add(custom);
+                args.Add("--merge-output-format");
+                args.Add("mp4");
+                args.Add("--remux-video");
+                args.Add("mp4");
             }
         }
-        else
+        else if (videoFormat != null)
         {
             args.Add("-f");
-            args.Add(tag);
+            args.Add(videoFormat);
         }
-
-        // yt-dlp shells out to ffmpeg whenever the chosen format needs a separate
-        // video+audio merge; forcing the container to mp4 here covers both the
-        // presets above and any custom "video+audio" format code from -F.
-        if (!isAudioOnly && MergeMp4CheckBox.IsChecked == true)
+        else if (audioFormat != null)
         {
-            args.Add("--merge-output-format");
-            args.Add("mp4");
-            args.Add("--remux-video");
-            args.Add("mp4");
+            args.Add("-f");
+            args.Add(audioFormat);
         }
 
         var ffmpegPath = FfmpegPathTextBox.Text.Trim();
@@ -448,10 +559,16 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (!IsVideoIncluded() && !IsAudioIncluded())
+        {
+            MessageBox.Show(this, "影片與音訊都設為「不下載」，請至少選擇一項。", "沒有可下載的內容", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
         var ffmpegPath = FfmpegPathTextBox.Text.Trim();
         var ffmpegMissing = string.IsNullOrEmpty(ffmpegPath)
             || (!File.Exists(ffmpegPath) && ffmpegPath.Equals("ffmpeg.exe", StringComparison.OrdinalIgnoreCase));
-        if (MergeMp4CheckBox.IsChecked == true && ffmpegMissing)
+        if (MergeMp4CheckBox.IsEnabled && MergeMp4CheckBox.IsChecked == true && ffmpegMissing)
         {
             var result = MessageBox.Show(this,
                 "找不到 ffmpeg.exe，無法自動合併影音為 MP4。要繼續下載嗎？（可能會下載成分離的影音檔或失敗）",

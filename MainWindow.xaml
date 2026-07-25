@@ -97,25 +97,33 @@
             <StackPanel>
                 <WrapPanel>
                     <StackPanel Orientation="Horizontal" Margin="0,0,16,4">
-                        <Label Content="下載格式："/>
-                        <ComboBox x:Name="FormatComboBox" Width="260" SelectedIndex="0">
-                            <ComboBoxItem Content="最佳畫質（影片+音訊）" Tag="bestvideo*+bestaudio/best"/>
-                            <ComboBoxItem Content="僅音訊（轉存為 mp3）" Tag="AUDIO_ONLY|mp3"/>
-                            <ComboBoxItem Content="僅音訊（轉存為 m4a）" Tag="AUDIO_ONLY|m4a"/>
-                            <ComboBoxItem Content="限制 1080p 以下" Tag="bestvideo*[height&lt;=1080]+bestaudio/best[height&lt;=1080]"/>
-                            <ComboBoxItem Content="限制 720p 以下" Tag="bestvideo*[height&lt;=720]+bestaudio/best[height&lt;=720]"/>
-                            <ComboBoxItem Content="自訂格式代碼（下方輸入）" Tag="CUSTOM"/>
+                        <Label Content="影片畫質："/>
+                        <ComboBox x:Name="VideoQualityComboBox" Width="180" SelectedIndex="0">
+                            <ComboBoxItem Content="最佳畫質" Tag="bestvideo*"/>
+                            <ComboBoxItem Content="限制 1080p 以下" Tag="bestvideo*[height&lt;=1080]"/>
+                            <ComboBoxItem Content="限制 720p 以下" Tag="bestvideo*[height&lt;=720]"/>
+                            <ComboBoxItem Content="自訂格式代碼" Tag="CUSTOM"/>
+                            <ComboBoxItem Content="不下載影片" Tag="NONE"/>
                         </ComboBox>
+                        <TextBox x:Name="CustomVideoFormatTextBox" Width="90" Margin="6,0,0,0" IsEnabled="False"
+                                 ToolTip="例如：137"/>
                     </StackPanel>
                     <StackPanel Orientation="Horizontal" Margin="0,0,16,4">
-                        <Label Content="自訂格式代碼："/>
-                        <TextBox x:Name="CustomFormatTextBox" Width="160" IsEnabled="False"
-                                 ToolTip="例如：137+140"/>
+                        <Label Content="音訊格式："/>
+                        <ComboBox x:Name="AudioFormatComboBox" Width="180" SelectedIndex="0">
+                            <ComboBoxItem Content="最佳音質（原始格式）" Tag="bestaudio"/>
+                            <ComboBoxItem x:Name="AudioMp3Item" Content="轉存為 mp3" Tag="AUDIO_ONLY|mp3"/>
+                            <ComboBoxItem x:Name="AudioM4aItem" Content="轉存為 m4a" Tag="AUDIO_ONLY|m4a"/>
+                            <ComboBoxItem Content="自訂格式代碼" Tag="CUSTOM"/>
+                            <ComboBoxItem Content="不下載音訊" Tag="NONE"/>
+                        </ComboBox>
+                        <TextBox x:Name="CustomAudioFormatTextBox" Width="90" Margin="6,0,0,0" IsEnabled="False"
+                                 ToolTip="例如：140"/>
                     </StackPanel>
                 </WrapPanel>
                 <WrapPanel Margin="0,4,0,0">
-                    <CheckBox x:Name="MergeMp4CheckBox" Content="使用 ffmpeg 自動合併影音並輸出 MP4" IsChecked="True"
-                              ToolTip="影片與音訊個別下載後，用 ffmpeg 合併成單一 MP4 檔"/>
+                    <CheckBox x:Name="MergeMp4CheckBox" Content="合併影片及音訊成 MP4" IsChecked="True"
+                              ToolTip="需同時選擇影片與音訊才能勾選：勾選時用 ffmpeg 合併成單一 MP4；不勾選則個別下載影片檔與音訊檔"/>
                     <CheckBox x:Name="PlaylistCheckBox" Content="下載整個播放清單"/>
                     <CheckBox x:Name="SubtitlesCheckBox" Content="下載並嵌入字幕"/>
                     <CheckBox x:Name="ThumbnailCheckBox" Content="嵌入縮圖"/>
@@ -125,7 +133,7 @@
                     <CheckBox x:Name="KeepOriginalCheckBox" Content="保留原始檔案不轉檔"/>
                 </WrapPanel>
                 <Expander x:Name="FormatsExpander" Margin="0,8,0,0" IsExpanded="False"
-                          Header="可用格式清單（取得後顯示；選取後按「套用選取的格式」或直接雙擊套用，Ctrl/Shift 可複選以組合影片+音訊代碼）">
+                          Header="可用格式清單（取得後顯示；選一個套用到影片或音訊，Ctrl/Shift 複選可同時套用影片+音訊兩個代碼）">
                     <StackPanel Margin="0,6,0,0">
                         <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
                             <Button x:Name="ApplyFormatsButton" Content="套用選取的格式" Click="ApplyFormatsButton_Click"/>
