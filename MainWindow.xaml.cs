@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -11,8 +12,13 @@ namespace YtDlpGui;
 
 public partial class MainWindow : Window
 {
+    private const int MaxAutoRetries = 20;
+    private static readonly TimeSpan AutoRetryDelay = TimeSpan.FromSeconds(5);
+
     private Process? _process;
     private string? _cookiesFilePath;
+    private bool _userStopRequested;
+    private CancellationTokenSource? _downloadCts;
     private static readonly Regex ProgressRegex = new(
         @"\[download\]\s+(\d{1,3}(?:\.\d+)?)%",
         RegexOptions.Compiled);
@@ -593,56 +599,113 @@ public partial class MainWindow : Window
 
         var args = BuildArguments();
 
+        _userStopRequested = false;
+        _downloadCts = new CancellationTokenSource();
         StartButton.IsEnabled = false;
         StopButton.IsEnabled = true;
         DownloadProgressBar.Value = 0;
         ProgressText.Text = "0%";
-        AppendLog($"> {ytDlpPath} {string.Join(' ', args.Select(QuoteIfNeeded))}");
-
-        var psi = new ProcessStartInfo
-        {
-            FileName = ytDlpPath,
-            UseShellExecute = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            CreateNoWindow = true,
-        };
-        foreach (var a in args)
-            psi.ArgumentList.Add(a);
-
-        _process = new Process { StartInfo = psi, EnableRaisingEvents = true };
-        _process.OutputDataReceived += (_, ev) => { if (ev.Data != null) AppendLog(ev.Data); };
-        _process.ErrorDataReceived += (_, ev) => { if (ev.Data != null) AppendLog(ev.Data); };
 
         try
         {
-            _process.Start();
-            _process.BeginOutputReadLine();
-            _process.BeginErrorReadLine();
-            await _process.WaitForExitAsync();
-            AppendLog(_process.ExitCode == 0 ? "=== 下載完成 ===" : $"=== 結束，離開代碼 {_process.ExitCode} ===");
-        }
-        catch (Exception ex)
-        {
-            AppendLog($"執行失敗：{ex.Message}");
+            await RunWithAutoRetryAsync(ytDlpPath, args, _downloadCts.Token);
         }
         finally
         {
-            _process?.Dispose();
-            _process = null;
+            _downloadCts?.Dispose();
+            _downloadCts = null;
             StartButton.IsEnabled = true;
             StopButton.IsEnabled = false;
         }
     }
 
+    // yt-dlp resumes partial downloads by default (--continue), so re-running the
+    // same command after an unexpected exit picks up where it left off instead of
+    // starting over. A deliberate Stop click (_userStopRequested) skips all of this.
+    private async Task RunWithAutoRetryAsync(string ytDlpPath, List<string> args, CancellationToken cancellationToken)
+    {
+        var attempt = 0;
+        while (true)
+        {
+            AppendLog($"> {ytDlpPath} {string.Join(' ', args.Select(QuoteIfNeeded))}");
+
+            var psi = new ProcessStartInfo
+            {
+                FileName = ytDlpPath,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true,
+            };
+            foreach (var a in args)
+                psi.ArgumentList.Add(a);
+
+            int exitCode;
+            _process = new Process { StartInfo = psi, EnableRaisingEvents = true };
+            _process.OutputDataReceived += (_, ev) => { if (ev.Data != null) AppendLog(ev.Data); };
+            _process.ErrorDataReceived += (_, ev) => { if (ev.Data != null) AppendLog(ev.Data); };
+
+            try
+            {
+                _process.Start();
+                _process.BeginOutputReadLine();
+                _process.BeginErrorReadLine();
+                await _process.WaitForExitAsync();
+                exitCode = _process.ExitCode;
+            }
+            catch (Exception ex)
+            {
+                AppendLog($"執行失敗：{ex.Message}");
+                exitCode = -1;
+            }
+            finally
+            {
+                _process?.Dispose();
+                _process = null;
+            }
+
+            if (exitCode == 0)
+            {
+                AppendLog("=== 下載完成 ===");
+                return;
+            }
+
+            if (_userStopRequested)
+            {
+                AppendLog("=== 使用者中止下載 ===");
+                return;
+            }
+
+            attempt++;
+            if (attempt > MaxAutoRetries)
+            {
+                AppendLog($"=== 下載中斷（離開代碼 {exitCode}），已自動重試 {MaxAutoRetries} 次仍未完成，停止重試 ===");
+                return;
+            }
+
+            AppendLog($"=== 下載未完成（離開代碼 {exitCode}），{AutoRetryDelay.TotalSeconds:0} 秒後自動繼續下載（第 {attempt} 次重試）===");
+            try
+            {
+                await Task.Delay(AutoRetryDelay, cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                AppendLog("=== 使用者中止下載 ===");
+                return;
+            }
+        }
+    }
+
     private void StopButton_Click(object sender, RoutedEventArgs e)
     {
+        _userStopRequested = true;
+        _downloadCts?.Cancel();
+
         if (_process != null && !_process.HasExited)
         {
             try
             {
                 _process.Kill(entireProcessTree: true);
-                AppendLog("=== 使用者中止下載 ===");
             }
             catch (Exception ex)
             {
