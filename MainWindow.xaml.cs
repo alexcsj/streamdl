@@ -130,6 +130,14 @@ public partial class MainWindow : Window
             MergeMp4CheckBox.IsChecked = true; // default to merging when both first become available
 
         _wasBothSelected = bothSelected;
+
+        // Only meaningful for a plain audio-only download (best quality or a specific
+        // format code); the mp3/m4a presets above already convert on their own.
+        var currentAudioTag = (AudioFormatComboBox.SelectedItem as ComboBoxItem)?.Tag as string ?? "";
+        var convertAvailable = !videoIncluded && (currentAudioTag == "bestaudio" || currentAudioTag == "CUSTOM");
+        ConvertAudioToMp3CheckBox.IsEnabled = convertAvailable;
+        if (!convertAvailable)
+            ConvertAudioToMp3CheckBox.IsChecked = false;
     }
 
     private enum FormatKind { Audio, Video }
@@ -454,6 +462,12 @@ public partial class MainWindow : Window
         {
             args.Add("-f");
             args.Add(audioFormat);
+            if (ConvertAudioToMp3CheckBox.IsEnabled && ConvertAudioToMp3CheckBox.IsChecked == true)
+            {
+                args.Add("-x");
+                args.Add("--audio-format");
+                args.Add("mp3");
+            }
         }
 
         var ffmpegPath = FfmpegPathTextBox.Text.Trim();

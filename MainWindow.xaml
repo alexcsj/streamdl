@@ -124,6 +124,8 @@
                 <WrapPanel Margin="0,4,0,0">
                     <CheckBox x:Name="MergeMp4CheckBox" Content="合併影片及音訊成 MP4" IsChecked="True"
                               ToolTip="需同時選擇影片與音訊才能勾選：勾選時用 ffmpeg 合併成單一 MP4；不勾選則個別下載影片檔與音訊檔"/>
+                    <CheckBox x:Name="ConvertAudioToMp3CheckBox" Content="將選取的音訊格式轉存為 MP3"
+                              ToolTip="僅音訊模式（不下載影片）且音訊格式選「最佳音質」或「自訂格式代碼」時可用：下載後用 ffmpeg 轉存成 mp3"/>
                     <CheckBox x:Name="PlaylistCheckBox" Content="下載整個播放清單"/>
                     <CheckBox x:Name="SubtitlesCheckBox" Content="下載並嵌入字幕"/>
                     <CheckBox x:Name="ThumbnailCheckBox" Content="嵌入縮圖"/>
